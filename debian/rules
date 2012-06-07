@@ -21,7 +21,11 @@ ifneq (,$(findstring $(DEB_HOST_ARCH_OS), linux))
   WITH_UDEV           = --with-udev --without-hal
   WITH_CAPNG          = --with-capng
   WITH_POLKIT         = --with-polkit
-  WITH_MACVTAP        = --with-macvtap
+  ifneq (,$(findstring $(shell lsb_release --codename --short), lucid karmic jaunty intrepid hardy))
+      WITH_MACVTAP    = --without-macvtap
+  else
+      WITH_MACVTAP    = --with-macvtap
+  endif
   WITH_NETWORK        = --with-network
   WITH_QEMU           = --with-qemu
   WITH_OPENVZ         = --with-openvz
