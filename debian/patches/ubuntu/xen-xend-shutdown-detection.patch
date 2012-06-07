@@ -1,0 +1,39 @@
+Description: xend_internal: Use domain/status for shutdown check
+ On newer xend (v3.x and after) there is no state and domid reported
+ for inactive domains. When initially creating connections this is
+ handled in various places by assigning domain->id = -1.
+ But once an instance has been running, the id is set to the current
+ domain id. And it does not change when the instance is shut down.
+ So when querying the domain info, the hypervisor driver, which gets
+ asked first will indicate it cannot find information, then the
+ xend driver is asked and will set the status to NOSTATE because it
+ checks for the -1 domain id.
+ Checking domain/status for 0 seems to be more reliable for that.
+
+ One note: I am not sure whether the domain->id also should get set
+ back to -1 whenever any sub-driver thinks the instance is no longer
+ running.
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=746007
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/929626S
+Forwarded: https://www.redhat.com/archives/libvir-list/2012-March/msg01120.html
+Author: Stefan Bader <stefan.bader@canonical.com>
+Last-Update: 2012-03-26
+Index: libvirt-0.9.8/src/xen/xend_internal.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xen/xend_internal.c	2012-03-23 11:37:19.596211905 +0100
++++ libvirt-0.9.8/src/xen/xend_internal.c	2012-03-23 11:38:08.824452566 +0100
+@@ -989,9 +989,11 @@
+             state = VIR_DOMAIN_BLOCKED;
+         else if (strchr(flags, 'r'))
+             state = VIR_DOMAIN_RUNNING;
+-    } else if (domain->id < 0) {
+-        /* Inactive domains don't have a state reported, so
+-           mark them SHUTOFF, rather than NOSTATE */
++    } else if (sexpr_int(root, "domain/status") == 0) {
++        /* As far as I can see the domain->id is a bad sign for checking
++         * inactive domains as this is inaccurate after the domain has
++         * been running once. However domain/status from xend seems to
++         * be always present and 0 for inactive domains. */
+         state = VIR_DOMAIN_SHUTOFF;
+     }
+ 

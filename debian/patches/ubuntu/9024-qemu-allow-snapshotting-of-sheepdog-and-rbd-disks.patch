@@ -1,0 +1,41 @@
+From 4138d472bdb8e9c4e1fa1f4c9bca2d1d37c2d085 Mon Sep 17 00:00:00 2001
+From: Josh Durgin <josh.durgin@dreamhost.com>
+Date: Fri, 30 Mar 2012 15:25:47 -0700
+Subject: [PATCH 3/3] qemu: allow snapshotting of sheepdog and rbd disks
+
+Signed-off-by: Josh Durgin <josh.durgin@dreamhost.com>
+---
+ src/qemu/qemu_driver.c |   14 ++++++++++----
+ 1 files changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/src/qemu/qemu_driver.c b/src/qemu/qemu_driver.c
+index 1e5ed9a..6f0ec7a 100644
+--- a/src/qemu/qemu_driver.c
++++ b/src/qemu/qemu_driver.c
+@@ -9161,12 +9161,18 @@ static int qemuDomainSnapshotIsAllowed(virDomainObjPtr vm)
+      * that succeed as well
+      */
+     for (i = 0; i < vm->def->ndisks; i++) {
+-        if (vm->def->disks[i]->device == VIR_DOMAIN_DISK_DEVICE_DISK &&
+-            (!vm->def->disks[i]->driverType ||
+-             STRNEQ(vm->def->disks[i]->driverType, "qcow2"))) {
++        virDomainDiskDefPtr disk = vm->def->disks[i];
++        if (disk->type == VIR_DOMAIN_DISK_TYPE_NETWORK &&
++            (disk->protocol == VIR_DOMAIN_DISK_PROTOCOL_SHEEPDOG ||
++             disk->protocol == VIR_DOMAIN_DISK_PROTOCOL_RBD))
++            continue;
++
++        if (disk->device == VIR_DOMAIN_DISK_DEVICE_DISK &&
++            (!disk->driverType ||
++             STRNEQ(disk->driverType, "qcow2"))) {
+             qemuReportError(VIR_ERR_OPERATION_INVALID,
+                             _("Disk '%s' does not support snapshotting"),
+-                            vm->def->disks[i]->src);
++                            disk->src);
+             return 0;
+         }
+     }
+-- 
+1.7.5.4
+
+

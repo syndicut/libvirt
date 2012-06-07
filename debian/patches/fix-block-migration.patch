@@ -1,0 +1,39 @@
+Fixes Block-Migration for large images
+
+From d8916dc8e2f612ab3ce46f32c4bfeb0bd73f6007 Mon Sep 17 00:00:00 2001
+From: Jim Fehlig <jfehlig@suse.com>
+Date: Thu, 15 Dec 2011 11:25:07 -0700
+Subject: [PATCH] Fix default migration speed in qemu driver
+
+In commit 6f84e110 I mistakenly set default migration speed to
+33554432 Mb!  The units of migMaxBandwidth is Mb, with conversion
+handled in qemuMonitor{JSON,Text}SetMigrationSpeed().
+
+Also, remove definition of QEMU_DOMAIN_FILE_MIG_BANDWIDTH_MAX since
+it is no longer used after reverting commit ef1065cf.
+---
+ src/qemu/qemu_domain.h |    9 +--------
+ 1 files changed, 1 insertions(+), 8 deletions(-)
+
+diff --git a/src/qemu/qemu_domain.h b/src/qemu/qemu_domain.h
+index 35f9440..f40fa09 100644
+--- a/src/qemu/qemu_domain.h
++++ b/src/qemu/qemu_domain.h
+@@ -36,14 +36,7 @@
+      (1 << VIR_DOMAIN_VIRT_KVM) |      \
+      (1 << VIR_DOMAIN_VIRT_XEN))
+ 
+-# define QEMU_DOMAIN_DEFAULT_MIG_BANDWIDTH_MAX (32 << 20)
+-# if ULONG_MAX == 4294967295
+-/* Qemu has a 64-bit limit, but we are limited by our historical choice of
+- * representing bandwidth in a long instead of a 64-bit int.  */
+-#  define QEMU_DOMAIN_FILE_MIG_BANDWIDTH_MAX    ULONG_MAX
+-# else
+-#  define QEMU_DOMAIN_FILE_MIG_BANDWIDTH_MAX    (INT64_MAX / (1024 * 1024))
+-# endif
++# define QEMU_DOMAIN_DEFAULT_MIG_BANDWIDTH_MAX 32
+ 
+ # define JOB_MASK(job)                  (1 << (job - 1))
+ # define DEFAULT_JOB_MASK               \
+-- 
+1.7.8.2

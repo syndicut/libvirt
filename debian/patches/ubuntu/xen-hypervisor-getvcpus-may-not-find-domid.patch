@@ -1,0 +1,46 @@
+Description: xen-hypervisor: GetVcpus may not find a certain domain
+ Observed on connections that have been running and then shut
+ down. The hypervisor subdriver fills the log with internal
+ errors while the xend driver actually can handle the query.
+
+ This only handles the case which I observed after shutting
+ down an instance via virt-manager and leaving its console
+ window open. The same reasoning would probably be true for
+ other internal errors as long as they potentially get recovered
+ by other sub-drivers.
+Bug-Ubuntu: http://bugs.launchpad.net/bugs/963006
+Forwarded: https://www.redhat.com/archives/libvir-list/2012-March/msg01122.html
+Author: Stefan Bader <stefan.bader@canonical.com>
+Last-Update: 2012-03-26
+
+Index: libvirt-0.9.8/src/xen/xen_driver.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xen/xen_driver.c	2012-03-29 18:02:35.666452648 +0200
++++ libvirt-0.9.8/src/xen/xen_driver.c	2012-03-29 18:04:49.183105376 +0200
+@@ -1190,6 +1190,8 @@
+             if (ret > 0)
+                 return ret;
+         }
++
++    xenUnifiedError(VIR_ERR_NO_SUPPORT, __FUNCTION__);
+     return -1;
+ }
+ 
+Index: libvirt-0.9.8/src/xen/xen_hypervisor.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xen/xen_hypervisor.c	2012-03-29 18:02:35.710452870 +0200
++++ libvirt-0.9.8/src/xen/xen_hypervisor.c	2012-03-29 18:04:49.187105402 +0200
+@@ -3612,8 +3612,11 @@
+                                &dominfo);
+ 
+     if ((ret < 0) || (XEN_GETDOMAININFO_DOMAIN(dominfo) != domain->id)) {
+-        virXenErrorFunc(VIR_ERR_INTERNAL_ERROR, __FUNCTION__,
+-                        _("cannot get domain details"), 0);
++        /* This can happen if an instance is just shut down. It is probably
++         * better to leave the shouting to the unified caller.
++         * virXenErrorFunc(VIR_ERR_INTERNAL_ERROR, __FUNCTION__,
++         *                 _("cannot get domain details"), 0);
++         */
+         return (-1);
+     }
+     nbinfo = XEN_GETDOMAININFO_CPUCOUNT(dominfo) + 1;

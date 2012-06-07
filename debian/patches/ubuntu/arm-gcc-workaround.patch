@@ -1,0 +1,37 @@
+Index: libvirt-0.9.7/configure
+===================================================================
+--- libvirt-0.9.7.orig/configure	2011-11-16 07:38:46.364557529 -0600
++++ libvirt-0.9.7/configure	2011-11-16 07:38:52.248557428 -0600
+@@ -57528,6 +57528,12 @@
+     fi
+   done
+ 
++# see https://bugs.launchpad.net/bugs/823711
++case "$host" in
++	arm*-*linux* )
++		LIBNL_LIBS=`echo $LIBNL_LIBS | sed 's/ *-lnl-[^ ]*//g'`
++		;;
++esac
+ 
+   { $as_echo "$as_me:${as_lineno-$LINENO}: checking for iconv" >&5
+ $as_echo_n "checking for iconv... " >&6; }
+Index: libvirt-0.9.7/configure.ac
+===================================================================
+--- libvirt-0.9.7.orig/configure.ac	2011-11-16 07:38:46.376557527 -0600
++++ libvirt-0.9.7/configure.ac	2011-11-16 07:38:52.252557427 -0600
+@@ -2425,8 +2425,14 @@
+ AM_CONDITIONAL([WITH_VIRTUALPORT], [test "$with_virtualport" = "yes"])
+ 
+ 
+-dnl netlink library
+ 
++dnl netlink library
++# see https://bugs.launchpad.net/bugs/823711
++case "$host" in
++	arm*-*linux* )
++		LIBNL_LIBS=`echo $LIBNL_LIBS | sed 's/ *-lnl-@<:@^ @:>@*//g'`
++	;;
++esac
+ LIBNL_CFLAGS=""
+ LIBNL_LIBS=""
+ have_libnl=no

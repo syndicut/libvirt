@@ -1,0 +1,41 @@
+UBUNTU: Suppress ioemu agrument even when model name given
+
+A strange bug in the xm stack will cause the paravirt interface
+to have no MAC address when type=ioemu is used in the vif definition.
+However for the default emulation and any other hw emulated NIC,
+there will always be a paravirtualized NIC present. And the guest
+will unplug the emulated interfaces when the platform device
+is present. In short type=ioemu only can hurt, it never adds
+anything that would not be done anyways.
+
+Signed-off-by: Stefan Bader <stefan.bader@canonical.com>
+Index: libvirt-0.9.8/src/xenxs/xen_sxpr.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xenxs/xen_sxpr.c	2011-11-22 02:52:24.000000000 +0100
++++ libvirt-0.9.8/src/xenxs/xen_sxpr.c	2012-03-07 15:03:01.460285542 +0100
+@@ -1873,7 +1873,9 @@
+     }
+     else {
+         virBufferEscapeSexpr(buf, "(model '%s')", def->model);
+-        virBufferAddLit(buf, "(type ioemu)");
++	/* See above. Also needed when model is specified. */
++        if (xendConfigVersion <= XEND_CONFIG_MAX_VERS_NET_TYPE_IOEMU)
++            virBufferAddLit(buf, "(type ioemu)");
+     }
+ 
+     if (!isAttach)
+Index: libvirt-0.9.8/src/xenxs/xen_xm.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xenxs/xen_xm.c	2011-11-22 02:52:24.000000000 +0100
++++ libvirt-0.9.8/src/xenxs/xen_xm.c	2012-03-07 15:03:49.872285557 +0100
+@@ -1335,7 +1335,9 @@
+     }
+     else {
+         virBufferAsprintf(&buf, ",model=%s", net->model);
+-        virBufferAddLit(&buf, ",type=ioemu");
++	/* See above. Also needed if model is specified. */
++        if (xendConfigVersion <= XEND_CONFIG_MAX_VERS_NET_TYPE_IOEMU)
++            virBufferAddLit(&buf, ",type=ioemu");
+     }
+ 
+     if (net->ifname)

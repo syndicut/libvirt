@@ -1,0 +1,168 @@
+--- libvirt-0.9.8.orig/src/xen/xen_hypervisor.c
++++ libvirt-0.9.8/src/xen/xen_hypervisor.c
+@@ -2335,8 +2335,8 @@ xenHypervisorBuildCapabilities(virConnec
+                                              guest_archs[i].model,
+                                              guest_archs[i].bits,
+                                              (STREQ(hostmachine, "x86_64") ?
+-                                              "/usr/lib64/xen/bin/qemu-dm" :
+-                                              "/usr/lib/xen/bin/qemu-dm"),
++                                              "/usr/lib/xen-default/bin/qemu-dm" :
++                                              "/usr/lib/xen-default/bin/qemu-dm"),
+                                              (guest_archs[i].hvm ?
+                                               "/usr/lib/xen-default/boot/hvmloader" :
+                                               NULL),
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-x86_64-hvm.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-x86_64-hvm.xml
+@@ -20,7 +20,7 @@
+     <os_type>xen</os_type>
+     <arch name='x86_64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib64/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+@@ -31,7 +31,7 @@
+     <os_type>hvm</os_type>
+     <arch name='i686'>
+       <wordsize>32</wordsize>
+-      <emulator>/usr/lib64/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <loader>/usr/lib/xen-default/boot/hvmloader</loader>
+       <machine>xenfv</machine>
+       <domain type='xen'>
+@@ -49,7 +49,7 @@
+     <os_type>hvm</os_type>
+     <arch name='x86_64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib64/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <loader>/usr/lib/xen-default/boot/hvmloader</loader>
+       <machine>xenfv</machine>
+       <domain type='xen'>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-ia64-be-hvm.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-ia64-be-hvm.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+@@ -31,7 +31,7 @@
+     <os_type>hvm</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <loader>/usr/lib/xen-default/boot/hvmloader</loader>
+       <machine>xenfv</machine>
+       <domain type='xen'>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-ia64-be.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-ia64-be.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-ia64.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-ia64.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-ppc64.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-ppc64.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='ppc64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-x86_64.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-x86_64.xml
+@@ -20,7 +20,7 @@
+     <os_type>xen</os_type>
+     <arch name='x86_64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib64/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-i686-pae.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-i686-pae.xml
+@@ -20,7 +20,7 @@
+     <os_type>xen</os_type>
+     <arch name='i686'>
+       <wordsize>32</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-i686-pae-hvm.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-i686-pae-hvm.xml
+@@ -20,7 +20,7 @@
+     <os_type>xen</os_type>
+     <arch name='i686'>
+       <wordsize>32</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+@@ -34,7 +34,7 @@
+     <os_type>hvm</os_type>
+     <arch name='i686'>
+       <wordsize>32</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <loader>/usr/lib/xen-default/boot/hvmloader</loader>
+       <machine>xenfv</machine>
+       <domain type='xen'>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-ia64-hvm.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-ia64-hvm.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>
+@@ -28,7 +28,7 @@
+     <os_type>hvm</os_type>
+     <arch name='ia64'>
+       <wordsize>64</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <loader>/usr/lib/xen-default/boot/hvmloader</loader>
+       <machine>xenfv</machine>
+       <domain type='xen'>
+--- libvirt-0.9.8.orig/tests/xencapsdata/xen-i686.xml
++++ libvirt-0.9.8/tests/xencapsdata/xen-i686.xml
+@@ -17,7 +17,7 @@
+     <os_type>xen</os_type>
+     <arch name='i686'>
+       <wordsize>32</wordsize>
+-      <emulator>/usr/lib/xen/bin/qemu-dm</emulator>
++      <emulator>/usr/lib/xen-default/bin/qemu-dm</emulator>
+       <machine>xenpv</machine>
+       <domain type='xen'>
+       </domain>

@@ -1,0 +1,19 @@
+xen_hypervisor: Treat missing socket as temporary failure
+
+This socket file is created by xenfs, which can be a module. If that
+is the case the hypervisor can be initialized later.
+
+Index: libvirt-0.9.8/src/xen/xen_hypervisor.c
+===================================================================
+--- libvirt-0.9.8.orig/src/xen/xen_hypervisor.c	2012-02-08 16:54:17.530530428 +0100
++++ libvirt-0.9.8/src/xen/xen_hypervisor.c	2012-02-08 16:55:05.226763592 +0100
+@@ -2021,6 +2021,9 @@
+     ret = open(XEN_HYPERVISOR_SOCKET, O_RDWR);
+     if (ret < 0) {
+         hv_versions.hypervisor = -1;
++	in_init = 0;
++	/* Missing socket may appear after xenfs is loaded as a module */
++	initialized = 0;
+         return(-1);
+     }
+     fd = ret;

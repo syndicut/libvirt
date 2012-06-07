@@ -1,0 +1,308 @@
+From a8a8f1231174737ad3b1e1c5bd839ed78ec12c65 Mon Sep 17 00:00:00 2001
+From: Josh Durgin <josh.durgin@dreamhost.com>
+Date: Sat, 25 Feb 2012 16:48:02 -0800
+Subject: [PATCH 1/3] qemu: unescape HMP commands before converting them to
+ json
+
+QMP commands don't need to be escaped since converting them to json
+also escapes special characters. When a QMP command fails, however,
+libvirt falls back to HMP commands. These fallback functions
+(qemuMonitorText*) do their own escaping, and pass the result directly
+to qemuMonitorHMPCommandWithFd. If the monitor is in json mode, these
+pre-escaped commands will be escaped again when converted to json,
+which can result in the wrong arguments being sent.
+
+For example, a filename test\file would be sent in json as
+test\\file.
+
+This prevented attaching an image file with a " or \ in its name in
+qemu 1.0.50, and also broke rbd attachment (which uses backslashes to
+escape some internal arguments.)
+
+Reported-by: Masuko Tomoya <tomoya.masuko@gmail.com>
+Signed-off-by: Josh Durgin <josh.durgin@dreamhost.com>
+Signed-off-by: Eric Blake <eblake@redhat.com>
+---
+ src/qemu/qemu_monitor.c |   67 +++++++++++++++++++++++++--
+ src/qemu/qemu_monitor.h |    1 +
+ tests/Makefile.am       |   12 ++++-
+ tests/qemumonitortest.c |  118 +++++++++++++++++++++++++++++++++++++++++++++++
+ 5 files changed, 192 insertions(+), 7 deletions(-)
+ create mode 100644 tests/qemumonitortest.c
+
+diff --git a/src/qemu/qemu_monitor.c b/src/qemu/qemu_monitor.c
+index 4141fb7..36817fe 100644
+--- a/src/qemu/qemu_monitor.c
++++ b/src/qemu/qemu_monitor.c
+@@ -139,6 +139,49 @@ char *qemuMonitorEscapeArg(const char *in)
+     return out;
+ }
+ 
++char *qemuMonitorUnescapeArg(const char *in)
++{
++    int i, j;
++    char *out;
++    int len = strlen(in) + 1;
++    char next;
++
++    if (VIR_ALLOC_N(out, len) < 0)
++        return NULL;
++
++    for (i = j = 0; i < len; ++i) {
++        next = in[i];
++        if (in[i] == '\\') {
++            if (len < i + 1) {
++                /* trailing backslash shouldn't be possible */
++                VIR_FREE(out);
++                return NULL;
++            }
++            ++i;
++            switch(in[i]) {
++            case 'r':
++                next = '\r';
++                break;
++            case 'n':
++                next = '\n';
++                break;
++            case '"':
++            case '\\':
++                next = in[i];
++                break;
++            default:
++                /* invalid input */
++                VIR_FREE(out);
++                return NULL;
++            }
++        }
++        out[j++] = next;
++    }
++    out[j] = '\0';
++
++    return out;
++}
++
+ #if DEBUG_RAW_IO
+ # include <c-ctype.h>
+ static char * qemuMonitorEscapeNonPrintable(const char *text)
+@@ -817,10 +860,26 @@ int qemuMonitorHMPCommandWithFd(qemuMonitorPtr mon,
+                                 int scm_fd,
+                                 char **reply)
+ {
+-    if (mon->json)
+-        return qemuMonitorJSONHumanCommandWithFd(mon, cmd, scm_fd, reply);
+-    else
+-        return qemuMonitorTextCommandWithFd(mon, cmd, scm_fd, reply);
++    char *json_cmd = NULL;
++    int ret = -1;
++
++    if (mon->json) {
++        /* hack to avoid complicating each call to text monitor functions */
++        json_cmd = qemuMonitorUnescapeArg(cmd);
++        if (!json_cmd) {
++            VIR_DEBUG("Could not unescape command: %s", cmd);
++            qemuReportError(VIR_ERR_INTERNAL_ERROR, "%s",
++                            _("Unable to unescape command"));
++            goto cleanup;
++        }
++        ret = qemuMonitorJSONHumanCommandWithFd(mon, json_cmd, scm_fd, reply);
++    } else {
++        ret = qemuMonitorTextCommandWithFd(mon, cmd, scm_fd, reply);
++    }
++
++cleanup:
++    VIR_FREE(json_cmd);
++    return ret;
+ }
+ 
+ /* Ensure proper locking around callbacks.  */
+diff --git a/src/qemu/qemu_monitor.h b/src/qemu/qemu_monitor.h
+index 15acf8b..fd29b5e 100644
+--- a/src/qemu/qemu_monitor.h
++++ b/src/qemu/qemu_monitor.h
+@@ -127,6 +127,7 @@ struct _qemuMonitorCallbacks {
+ 
+ 
+ char *qemuMonitorEscapeArg(const char *in);
++char *qemuMonitorUnescapeArg(const char *in);
+ 
+ qemuMonitorPtr qemuMonitorOpen(virDomainObjPtr vm,
+                                virDomainChrSourceDefPtr config,
+diff --git a/tests/Makefile.am b/tests/Makefile.am
+index f3b0c09..00b3ec9 100644
+--- a/tests/Makefile.am
++++ b/tests/Makefile.am
+@@ -73,6 +73,7 @@ EXTRA_DIST =		\
+ 	nwfilterxml2xmlout \
+ 	oomtrace.pl \
+ 	qemuhelpdata \
++	qemumonitortest \
+ 	qemuxml2argvdata \
+ 	qemuxml2xmloutdata \
+ 	qemuxmlnsdata \
+@@ -111,7 +112,8 @@ check_PROGRAMS += xml2sexprtest sexpr2xmltest \
+ endif
+ if WITH_QEMU
+ check_PROGRAMS += qemuxml2argvtest qemuxml2xmltest qemuxmlnstest \
+-	qemuargv2xmltest qemuhelptest domainsnapshotxml2xmltest
++	qemuargv2xmltest qemuhelptest domainsnapshotxml2xmltest \
++	qemumonitortest
+ endif
+ 
+ if WITH_OPENVZ
+@@ -238,7 +240,8 @@ endif
+ 
+ if WITH_QEMU
+ TESTS += qemuxml2argvtest qemuxml2xmltest qemuxmlnstest qemuargv2xmltest \
+-	 qemuhelptest domainsnapshotxml2xmltest nwfilterxml2xmltest
++	 qemuhelptest domainsnapshotxml2xmltest nwfilterxml2xmltest \
++	 qemumonitortest
+ endif
+ 
+ if WITH_OPENVZ
+@@ -366,6 +369,9 @@ qemuargv2xmltest_LDADD = $(qemu_LDADDS) $(LDADDS)
+ qemuhelptest_SOURCES = qemuhelptest.c testutils.c testutils.h
+ qemuhelptest_LDADD = $(qemu_LDADDS) $(LDADDS)
+ 
++qemumonitortest_SOURCES = qemumonitortest.c testutils.c testutils.h
++qemumonitortest_LDADD = $(qemu_LDADDS) $(LDADDS)
++
+ domainsnapshotxml2xmltest_SOURCES = \
+ 	domainsnapshotxml2xmltest.c testutilsqemu.c testutilsqemu.h \
+ 	testutils.c testutils.h
+@@ -373,7 +379,7 @@ domainsnapshotxml2xmltest_LDADD = $(qemu_LDADDS) $(LDADDS)
+ else
+ EXTRA_DIST += qemuxml2argvtest.c qemuxml2xmltest.c qemuargv2xmltest.c \
+ 	qemuxmlnstest.c qemuhelptest.c domainsnapshotxml2xmltest.c \
+-	testutilsqemu.c testutilsqemu.h
++	qemumonitortest.c testutilsqemu.c testutilsqemu.h
+ endif
+ 
+ if WITH_OPENVZ
+diff --git a/tests/qemumonitortest.c b/tests/qemumonitortest.c
+new file mode 100644
+index 0000000..82f861b
+--- /dev/null
++++ b/tests/qemumonitortest.c
+@@ -0,0 +1,118 @@
++#include <config.h>
++
++#include <stdio.h>
++#include <stdlib.h>
++#include <string.h>
++#include <unistd.h>
++
++#ifdef WITH_QEMU
++
++# include "internal.h"
++# include "memory.h"
++# include "testutils.h"
++# include "util.h"
++# include "qemu/qemu_monitor.h"
++
++struct testEscapeString
++{
++    const char *unescaped;
++    const char *escaped;
++};
++
++static struct testEscapeString escapeStrings[] = {
++    { "", "" },
++    { " ", " " },
++    { "\\", "\\\\" },
++    { "\n", "\\n" },
++    { "\r", "\\r" },
++    { "\"", "\\\"" },
++    { "\"\"\"\\\\\n\r\\\\\n\r\"\"\"", "\\\"\\\"\\\"\\\\\\\\\\n\\r\\\\\\\\\\n\\r\\\"\\\"\\\"" },
++    { "drive_add dummy file=foo\\", "drive_add dummy file=foo\\\\" },
++    { "block info", "block info" },
++    { "set_password \":\\\"\"", "set_password \\\":\\\\\\\"\\\"" },
++};
++
++static int testEscapeArg(const void *data ATTRIBUTE_UNUSED)
++{
++    int i;
++    char *escaped = NULL;
++    for (i = 0; i < ARRAY_CARDINALITY(escapeStrings); ++i) {
++        escaped = qemuMonitorEscapeArg(escapeStrings[i].unescaped);
++        if (!escaped) {
++            if (virTestGetDebug() > 0) {
++                fprintf(stderr, "\nUnescaped string [%s]\n",
++                        escapeStrings[i].unescaped);
++                fprintf(stderr, "Expect result [%s]\n",
++                        escapeStrings[i].escaped);
++                fprintf(stderr, "Actual result [(null)]\n");
++            }
++            return -1;
++        }
++        if (STRNEQ(escapeStrings[i].escaped, escaped)) {
++            virtTestDifference(stderr, escapeStrings[i].escaped, escaped);
++            VIR_FREE(escaped);
++            return -1;
++        }
++        VIR_FREE(escaped);
++    }
++
++    return 0;
++}
++
++static int testUnescapeArg(const void *data ATTRIBUTE_UNUSED)
++{
++    int i;
++    char *unescaped = NULL;
++    for (i = 0; i < ARRAY_CARDINALITY(escapeStrings); ++i) {
++        unescaped = qemuMonitorUnescapeArg(escapeStrings[i].escaped);
++        if (!unescaped) {
++            if (virTestGetDebug() > 0) {
++                fprintf(stderr, "\nEscaped string [%s]\n",
++                        escapeStrings[i].escaped);
++                fprintf(stderr, "Expect result [%s]\n",
++                        escapeStrings[i].unescaped);
++                fprintf(stderr, "Actual result [(null)]\n");
++            }
++            return -1;
++        }
++        if (STRNEQ(escapeStrings[i].unescaped, unescaped)) {
++            virtTestDifference(stderr, escapeStrings[i].unescaped, unescaped);
++            VIR_FREE(unescaped);
++            return -1;
++        }
++        VIR_FREE(unescaped);
++    }
++
++    return 0;
++}
++
++static int
++mymain(void)
++{
++    int result = 0;
++
++# define DO_TEST(_name)                                                 \
++    do {                                                                \
++        if (virtTestRun("qemu monitor "#_name, 1, test##_name,          \
++                        NULL) < 0) {                                    \
++            result = -1;                                                \
++        }                                                               \
++    } while (0)
++
++    DO_TEST(EscapeArg);
++    DO_TEST(UnescapeArg);
++
++    return result == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
++}
++
++VIRT_TEST_MAIN(mymain)
++
++#else
++# include "testutils.h"
++
++int main(void)
++{
++    return EXIT_AM_SKIP;
++}
++
++#endif /* WITH_QEMU */
+-- 
+1.7.5.4
+
+

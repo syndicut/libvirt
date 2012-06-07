@@ -1,0 +1,31 @@
+From 1c76a312c811f9ca2e62253a7e6201d2eec8e948 Mon Sep 17 00:00:00 2001
+From: Josh Durgin <josh.durgin@dreamhost.com>
+Date: Fri, 30 Mar 2012 15:19:00 -0700
+Subject: [PATCH 2/3] qemu: change rbd auth_supported separation character to
+ ;
+
+This works with newer qemu that doesn't allow escaping spaces.
+It's backwards compatible as well.
+
+Signed-off-by: Josh Durgin <josh.durgin@dreamhost.com>
+---
+ src/qemu/qemu_command.c |    2 +-
+ 1 files changed, 1 insertions(+), 1 deletions(-)
+
+diff --git a/src/qemu/qemu_command.c b/src/qemu/qemu_command.c
+index 22dc871..15b3650 100644
+--- a/src/qemu/qemu_command.c
++++ b/src/qemu/qemu_command.c
+@@ -1478,7 +1478,7 @@ qemuBuildRBDString(virConnectPtr conn,
+                 virReportOOMError();
+                 goto error;
+             }
+-            virBufferEscape(opt, ":", ":key=%s:auth_supported=cephx none",
++            virBufferEscape(opt, ":;", ":key=%s:auth_supported=cephx;none",
+                             base64);
+             VIR_FREE(base64);
+         } else {
+-- 
+1.7.5.4
+
+

@@ -1,0 +1,345 @@
+commit 9130396214975ba2251082f943c9717281039050
+Author: Daniel P. Berrange <berrange@redhat.com>
+Date:   Thu Jan 12 17:03:03 2012 +0000
+
+    Re-write LXC controller end-of-file I/O handling yet again
+    
+    Currently the LXC controller attempts to deal with EOF on a
+    tty by spawning a thread to do an edge triggered epoll_wait().
+    This avoids the normal event loop spinning on POLLHUP. There
+    is a subtle mistake though - even after seeing POLLHUP on a
+    master PTY, it is still perfectly possible & valid to write
+    data to the PTY. There is a buffer that can be filled with
+    data, even when no client is present.
+    
+    The second mistake is that the epoll_wait() thread was not
+    looking for the EPOLLOUT condition, so when a new client
+    connects to the LXC console, it had to explicitly send a
+    character before any queued output would appear.
+    
+    Finally, there was in fact no need to spawn a new thread to
+    deal with epoll_wait(). The epoll file descriptor itself
+    can be poll()'d on normally.
+    
+    This patch attempts to deal with all these problems.
+    
+     - The blocking epoll_wait() thread is replaced by a poll
+       on the epoll file descriptor which then does a non-blocking
+       epoll_wait() to handle events
+     - Even if POLLHUP is seen, we continue trying to write
+       any pending output until getting EAGAIN from write.
+     - Once write returns EAGAIN, we modify the epoll event
+       mask to also look for EPOLLOUT
+    
+    * src/lxc/lxc_controller.c: Avoid stalled I/O upon
+      connected to an LXC console
+
+diff --git a/src/lxc/lxc_controller.c b/src/lxc/lxc_controller.c
+index bb936ee..49727dd 100644
+--- a/src/lxc/lxc_controller.c
++++ b/src/lxc/lxc_controller.c
+@@ -736,9 +736,17 @@ struct lxcConsole {
+     int hostWatch;
+     int hostFd;  /* PTY FD in the host OS */
+     bool hostClosed;
++    int hostEpoll;
++    bool hostBlocking;
++
+     int contWatch;
+     int contFd;  /* PTY FD in the container */
+     bool contClosed;
++    int contEpoll;
++    bool contBlocking;
++
++    int epollWatch;
++    int epollFd; /* epoll FD for dealing with EOF */
+ 
+     size_t fromHostLen;
+     char fromHostBuf[1024];
+@@ -834,102 +842,148 @@ static void lxcConsoleUpdateWatch(struct lxcConsole *console)
+     int hostEvents = 0;
+     int contEvents = 0;
+ 
+-    if (!console->hostClosed) {
++    if (!console->hostClosed || (!console->hostBlocking && console->fromContLen)) {
+         if (console->fromHostLen < sizeof(console->fromHostBuf))
+             hostEvents |= VIR_EVENT_HANDLE_READABLE;
+         if (console->fromContLen)
+             hostEvents |= VIR_EVENT_HANDLE_WRITABLE;
+     }
+-    if (!console->contClosed) {
++    if (!console->contClosed || (!console->contBlocking && console->fromHostLen)) {
+         if (console->fromContLen < sizeof(console->fromContBuf))
+             contEvents |= VIR_EVENT_HANDLE_READABLE;
+         if (console->fromHostLen)
+             contEvents |= VIR_EVENT_HANDLE_WRITABLE;
+     }
+ 
++    VIR_DEBUG("Container watch %d=%d host watch %d=%d",
++              console->contWatch, contEvents,
++              console->hostWatch, hostEvents);
+     virEventUpdateHandle(console->contWatch, contEvents);
+     virEventUpdateHandle(console->hostWatch, hostEvents);
+-}
+ 
++    if (console->hostClosed) {
++        int events = EPOLLIN | EPOLLET;
++        if (console->hostBlocking)
++            events |= EPOLLOUT;
+ 
+-struct lxcConsoleEOFData {
+-    struct lxcConsole *console;
+-    int fd;
+-};
+-
++        if (events != console->hostEpoll) {
++            struct epoll_event event;
++            int action = EPOLL_CTL_ADD;
++            if (console->hostEpoll)
++                action = EPOLL_CTL_MOD;
+ 
+-static void lxcConsoleEOFThread(void *opaque)
+-{
+-    struct lxcConsoleEOFData *data = opaque;
+-    int ret;
+-    int epollfd = -1;
+-    struct epoll_event event;
++            VIR_DEBUG("newHostEvents=%x oldHostEvents=%x", events, console->hostEpoll);
+ 
+-    if ((epollfd = epoll_create(2)) < 0) {
+-        virReportSystemError(errno, "%s",
+-                             _("Unable to create epoll fd"));
+-        goto cleanup;
++            event.events = events;
++            event.data.fd = console->hostFd;
++            if (epoll_ctl(console->epollFd, action, console->hostFd, &event) < 0) {
++                VIR_DEBUG(":fail");
++                virReportSystemError(errno, "%s",
++                                     _("Unable to add epoll fd"));
++                quit = true;
++                goto cleanup;
++            }
++            console->hostEpoll = events;
++            VIR_DEBUG("newHostEvents=%x oldHostEvents=%x", events, console->hostEpoll);
++        }
++    } else if (console->hostEpoll) {
++        VIR_DEBUG("Stop epoll oldContEvents=%x", console->hostEpoll);
++        if (epoll_ctl(console->epollFd, EPOLL_CTL_DEL, console->hostFd, NULL) < 0) {
++            virReportSystemError(errno, "%s",
++                                 _("Unable to remove epoll fd"));
++                VIR_DEBUG(":fail");
++            quit = true;
++            goto cleanup;
++        }
++        console->hostEpoll = 0;
+     }
+ 
+-    event.events = EPOLLIN | EPOLLET;
+-    event.data.fd = data->fd;
+-    if (epoll_ctl(epollfd, EPOLL_CTL_ADD, data->fd, &event) < 0) {
+-        virReportSystemError(errno, "%s",
+-                             _("Unable to add epoll fd"));
+-        goto cleanup;
++    if (console->contClosed) {
++        int events = EPOLLIN | EPOLLET;
++        if (console->contBlocking)
++            events |= EPOLLOUT;
++
++        if (events != console->contEpoll) {
++            struct epoll_event event;
++            int action = EPOLL_CTL_ADD;
++            if (console->contEpoll)
++                action = EPOLL_CTL_MOD;
++
++            VIR_DEBUG("newContEvents=%x oldContEvents=%x", events, console->contEpoll);
++
++            event.events = events;
++            event.data.fd = console->contFd;
++            if (epoll_ctl(console->epollFd, action, console->contFd, &event) < 0) {
++                virReportSystemError(errno, "%s",
++                                     _("Unable to add epoll fd"));
++                VIR_DEBUG(":fail");
++                quit = true;
++                goto cleanup;
++            }
++            console->contEpoll = events;
++            VIR_DEBUG("newHostEvents=%x oldHostEvents=%x", events, console->contEpoll);
++        }
++    } else if (console->contEpoll) {
++        VIR_DEBUG("Stop epoll oldContEvents=%x", console->contEpoll);
++        if (epoll_ctl(console->epollFd, EPOLL_CTL_DEL, console->contFd, NULL) < 0) {
++            virReportSystemError(errno, "%s",
++                                 _("Unable to remove epoll fd"));
++                VIR_DEBUG(":fail");
++            quit = true;
++            goto cleanup;
++        }
++        console->contEpoll = 0;
+     }
++cleanup:
++    return;
++}
++
+ 
+-    for (;;) {
+-        ret = epoll_wait(epollfd, &event, 1, -1);
++static void lxcEpollIO(int watch, int fd, int events, void *opaque)
++{
++    struct lxcConsole *console = opaque;
++
++    virMutexLock(&lock);
++    VIR_DEBUG("IO event watch=%d fd=%d events=%d fromHost=%zu fromcont=%zu",
++              watch, fd, events,
++              console->fromHostLen,
++              console->fromContLen);
++
++    while (1) {
++        struct epoll_event event;
++        int ret;
++        ret = epoll_wait(console->epollFd, &event, 1, 0);
+         if (ret < 0) {
+             if (ret == EINTR)
+                 continue;
+             virReportSystemError(errno, "%s",
+                                  _("Unable to wait on epoll"));
+-            virMutexLock(&lock);
+             quit = true;
+-            virMutexUnlock(&lock);
+             goto cleanup;
+         }
+ 
++        if (ret == 0)
++            break;
++
++        VIR_DEBUG("fd=%d hostFd=%d contFd=%d hostEpoll=%x contEpoll=%x",
++                  event.data.fd, console->hostFd, console->contFd,
++                  console->hostEpoll, console->contEpoll);
++
+         /* If we get HUP+dead PID, we just re-enable the main loop
+          * which will see the PID has died and exit */
+         if ((event.events & EPOLLIN)) {
+-            virMutexLock(&lock);
+-            if (event.data.fd == data->console->hostFd) {
+-                data->console->hostClosed = false;
++            if (event.data.fd == console->hostFd) {
++                console->hostClosed = false;
+             } else {
+-                data->console->contClosed = false;
++                console->contClosed = false;
+             }
+-            lxcConsoleUpdateWatch(data->console);
+-            virMutexUnlock(&lock);
++            lxcConsoleUpdateWatch(console);
+             break;
+         }
+     }
+ 
+ cleanup:
+-    VIR_FORCE_CLOSE(epollfd);
+-    VIR_FREE(data);
+-}
+-
+-static int lxcCheckEOF(struct lxcConsole *console, int fd)
+-{
+-    struct lxcConsoleEOFData *data;
+-    virThread thread;
+-
+-    if (VIR_ALLOC(data) < 0) {
+-        virReportOOMError();
+-        return -1;
+-    }
+-
+-    data->console = console;
+-    data->fd = fd;
+-
+-    if (virThreadCreate(&thread, false, lxcConsoleEOFThread, data) < 0) {
+-        VIR_FREE(data);
+-        return -1;
+-    }
+-    return 0;
++    virMutexUnlock(&lock);
+ }
+ 
+ static void lxcConsoleIO(int watch, int fd, int events, void *opaque)
+@@ -937,6 +991,10 @@ static void lxcConsoleIO(int watch, int fd, int events, void *opaque)
+     struct lxcConsole *console = opaque;
+ 
+     virMutexLock(&lock);
++    VIR_DEBUG("IO event watch=%d fd=%d events=%d fromHost=%zu fromcont=%zu",
++              watch, fd, events,
++              console->fromHostLen,
++              console->fromContLen);
+     if (events & VIR_EVENT_HANDLE_READABLE) {
+         char *buf;
+         size_t *len;
+@@ -993,6 +1051,10 @@ static void lxcConsoleIO(int watch, int fd, int events, void *opaque)
+             *len -= done;
+         } else {
+             VIR_DEBUG("Write fd %d done %d errno %d", fd, (int)done, errno);
++            if (watch == console->hostWatch)
++                console->hostBlocking = true;
++            else
++                console->contBlocking = true;
+         }
+     }
+ 
+@@ -1003,8 +1065,6 @@ static void lxcConsoleIO(int watch, int fd, int events, void *opaque)
+             console->contClosed = true;
+         }
+         VIR_DEBUG("Got EOF on %d %d", watch, fd);
+-        if (lxcCheckEOF(console, fd) < 0)
+-            goto error;
+     }
+ 
+     lxcConsoleUpdateWatch(console);
+@@ -1103,9 +1163,32 @@ static int lxcControllerMain(int serverFd,
+     }
+ 
+     for (i = 0 ; i < nFds ; i++) {
++        consoles[i].epollFd = -1;
++        consoles[i].epollWatch = -1;
++        consoles[i].hostWatch = -1;
++        consoles[i].contWatch = -1;
++    }
++
++    for (i = 0 ; i < nFds ; i++) {
+         consoles[i].hostFd = hostFds[i];
+         consoles[i].contFd = contFds[i];
+ 
++        if ((consoles[i].epollFd = epoll_create1(EPOLL_CLOEXEC)) < 0) {
++            virReportSystemError(errno, "%s",
++                                 _("Unable to create epoll fd"));
++            goto cleanup;
++        }
++
++        if ((consoles[i].epollWatch = virEventAddHandle(consoles[i].epollFd,
++                                                        VIR_EVENT_HANDLE_READABLE,
++                                                        lxcEpollIO,
++                                                        &consoles[i],
++                                                        NULL)) < 0) {
++            lxcError(VIR_ERR_INTERNAL_ERROR, "%s",
++                     _("Unable to watch epoll FD"));
++            goto cleanup;
++        }
++
+         if ((consoles[i].hostWatch = virEventAddHandle(consoles[i].hostFd,
+                                                        VIR_EVENT_HANDLE_READABLE,
+                                                        lxcConsoleIO,
+@@ -1146,6 +1229,17 @@ cleanup:
+ cleanup2:
+     VIR_FORCE_CLOSE(monitor.serverFd);
+     VIR_FORCE_CLOSE(monitor.clientFd);
++
++    for (i = 0 ; i < nFds ; i++) {
++        if (consoles[i].epollWatch != -1)
++            virEventRemoveHandle(consoles[i].epollWatch);
++        VIR_FORCE_CLOSE(consoles[i].epollFd);
++        if (consoles[i].contWatch != -1)
++            virEventRemoveHandle(consoles[i].contWatch);
++        if (consoles[i].hostWatch != -1)
++            virEventRemoveHandle(consoles[i].hostWatch);
++    }
++
+     VIR_FREE(consoles);
+     return rc;
+ }

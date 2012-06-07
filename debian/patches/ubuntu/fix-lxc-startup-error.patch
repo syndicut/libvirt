@@ -1,0 +1,16 @@
+diff -Naurp libvirt-0.9.8.orig/src/lxc/lxc_controller.c libvirt-0.9.8/src/lxc/lxc_controller.c
+--- libvirt-0.9.8.orig/src/lxc/lxc_controller.c	2011-12-01 22:59:50.000000000 -0500
++++ libvirt-0.9.8/src/lxc/lxc_controller.c	2012-01-24 09:56:13.748057561 -0500
+@@ -1388,9 +1388,9 @@ lxcControllerRun(virDomainDefPtr def,
+             VIR_FREE(devptmx);
+         }
+     } else {
+-        if (nttyFDs != -1) {
+-            lxcError(VIR_ERR_CONFIG_UNSUPPORTED, "%s",
+-                     _("Expected exactly one TTY fd"));
++        if (nttyFDs != 1) {
++            lxcError(VIR_ERR_CONFIG_UNSUPPORTED,
++                     _("Expected exactly one TTY fd, but got %zu"), nttyFDs);
+             goto cleanup;
+         }
+     }

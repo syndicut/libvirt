@@ -1,0 +1,31 @@
+commit 2d5046d31f4f5c961fc4aa6b415a00bb9eadae2b
+Author: Jiri Denemark <jdenemar@redhat.com>
+Date:   Fri Dec 9 13:04:14 2011 +0100
+
+    bridge: Fix forward delay APIs
+    
+    Due to copy&paste error in c1df2c14b590b3d68b707aa4f3a570f95a6bc548,
+    virNetDevBridge[SG]etSTPDelay APIs were accessing wrong file.
+
+diff --git a/src/util/virnetdevbridge.c b/src/util/virnetdevbridge.c
+index e246b2c..08c8f5c 100644
+--- a/src/util/virnetdevbridge.c
++++ b/src/util/virnetdevbridge.c
+@@ -395,7 +395,7 @@ int virNetDevBridgeSetSTPDelay(const char *brname,
+     if ((fd = virNetDevSetupControl(brname, &ifr)) < 0)
+         goto cleanup;
+ 
+-    ret = virNetDevBridgeSet(brname, "stp_state", MS_TO_JIFFIES(delay),
++    ret = virNetDevBridgeSet(brname, "forward_delay", MS_TO_JIFFIES(delay),
+                              fd, &ifr);
+ 
+ cleanup:
+@@ -426,7 +426,7 @@ int virNetDevBridgeGetSTPDelay(const char *brname,
+     if ((fd = virNetDevSetupControl(brname, &ifr)) < 0)
+         goto cleanup;
+ 
+-    ret = virNetDevBridgeGet(brname, "stp_state", &i,
++    ret = virNetDevBridgeGet(brname, "forward_delay", &i,
+                              fd, &ifr);
+     *delayms = JIFFIES_TO_MS(i);
+ 

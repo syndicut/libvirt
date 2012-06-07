@@ -1,0 +1,19 @@
+Author: John Ferlito <johnf@inodes.org>
+Description: add vendor and device to pciDeviceFileIterate(). Patch submitted
+ upstream and they feel it is reasonable, but not committed yet.
+Bug: https://bugzilla.redhat.com/show_bug.cgi?id=624151
+Bug-Ubuntu: https://bugs.launchpad.net/ubuntu/maverick/+source/libvirt/+bug/545795
+
+Index: libvirt-0.9.7/src/util/pci.c
+===================================================================
+--- libvirt-0.9.7.orig/src/util/pci.c	2011-10-30 22:46:04.000000000 -0500
++++ libvirt-0.9.7/src/util/pci.c	2011-11-16 07:38:39.040557653 -0600
+@@ -1602,6 +1602,8 @@
+          */
+         if (STREQ(ent->d_name, "config") ||
+             STRPREFIX(ent->d_name, "resource") ||
++            STREQ(ent->d_name, "vendor") ||
++            STREQ(ent->d_name, "device") ||
+             STREQ(ent->d_name, "rom") ||
+             STREQ(ent->d_name, "reset")) {
+             if (virAsprintf(&file, "%s/%s", pcidir, ent->d_name) < 0) {
